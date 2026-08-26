@@ -12,7 +12,12 @@ venv/
 video.mp4
 *.png
 *.jpg
+start_frame.png
+end_frame.png
 matched_frame.png
+transcription.txt
+temp_audio.wav
+*.json
 
 # IDEs and OS files
 .vscode/
