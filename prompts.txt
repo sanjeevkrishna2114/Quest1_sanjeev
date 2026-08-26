@@ -1,0 +1,118 @@
+Prompts Used — "Find the Exact Frame Where a Dialogue Appears" Project
+========================================================================
+
+Prompt 1:
+---------
+[Attached: screenshot of expected output format]
+given a video link how can i identify a specific phrase like My mind rebels at stagnation
+and given any phrase i should return this
+Your program should produce, at minimum: The timestamp of the identified frame, The frame number, where applicable, The extracted dialogue text, The corresponding video frame as an image
+
+but there is no transcript present in the video or subtitles how can we process this video and get the desired output
+
+Prompt 2:
+---------
+this is the problem statement given lets create an approach for this and the different edge cases the approach addresses lets go for a mvp first then we can iterate and make it better
+
+Prompt 3:
+---------
+but in the vid link given there is no subtitles lets start with that for that particular case how should we approach it and build an mvp
+
+Prompt 4:
+---------
+okay no subtitles on screen caption is not present at all that is mistake its just people talking there is video and speech only no text at all so for this come up with an claude.md
+
+Prompt 5:
+---------
+what are the different edge cases and how are we planning to handle it
+
+Prompt 6:
+---------
+from the md remove all the ocr stuff and all and keep only how we are going to approach this just using the audio and the video part of it
+
+Prompt 7:
+---------
+lets say i want to find another phrase from the same video it makes no sense to do the transcribe again right in that case how can we figure out this particular transcribe and audio is already present and we dont need to do it again and for new examples from the same video we can just use that instead of running the entire pipeline
+
+Prompt 8:
+---------
+um still there is that 10 second delay with the actual video time stamp and what we extracted
+
+Prompt 9:
+---------
+in the audio the sentence is uttered at 5:15 but in the video which i opened using the windows media player its at 5:25 only i have also attached a ss of it but in the temp_audio.wav it is at 5:15 why is this happening
+the total vid length is 54:09 but the audio length is just 53:33 ig if this is fixed the issue will be fixed properly 
+
+Prompt 10:
+----------
+okay lets update the readme  with what we are trying to do along with the problems we faced and how we fixed it and the examples we have tested out so far and that info is in the terminal 
+
+Prompt 11:
+----------
+can you like form a table for the test cases we have done like what video it is what was the input the start timestamp end timestamp and the actual spoken text from the video
+
+Prompt 12:
+----------
+https://www.youtube.com/watch?v=U5siiQe-4rY&t=38s
+okay i want to test this youtube video download this video and store it and lets test this one out and see how it performs first download it or give me the command to download it and then we will test it out 
+
+Prompt 13:
+----------
+how can we optimize this ps and reduce the overhead like it does take a lot of time can it be made better like some design changes to optimize it 
+
+Prompt 14:
+----------
+but doing this the speech time will be different to the video time right like it removes the silence right which will reduce the time of the recorded audio and this will result in mismatch again
+
+Prompt 15:
+----------
+okay now i want to use fast api to create a backend end point for this
+
+Prompt 16:
+----------
+the user would most probably enter the video link and then the text they want to find the timestamp for 
+
+Prompt 17:
+----------
+see in the video path can i give a random youtube video link will that also work?
+
+Prompt 18:
+----------
+wait i have a doubt tell me what i can actually send in the payload of the post request
+
+Prompt 19:
+----------
+lets say in the first post i send a youtube link and in the second req i send the same link but then i change the text alone the cache will work properly right??
+
+Prompt 20:
+----------
+are there any design changes that can be made to make this implementation more optimal and better lets discuss no code required
+
+Prompt 21:
+----------
+https://www.youtube.com/watch?v=YVygyRMeATs
+okay give me the curl req for this video link i will enter the necessary text i want to test it on
+
+Prompt 22:
+----------
+how to fix this while keeping the curl command
+
+Prompt 23:
+----------
+okay now in the readme add the implementations of the fast api what are the actual req body should look like and what are all needed and also the architecture diagram of the proj
+
+Prompt 24:
+----------
+i think you have to shut down the fast api for me to run and check it
+
+Prompt 25:
+----------
+give me a curl req of the original my mind rebels at stagnation
+
+Prompt 26:
+----------
+give me a proper curl req not this body shi and all
+
+Prompt 27:
+----------
+in the readme add different curl commands like with the video link and with just the file path and explain what are required and what fields are optional and include curl commands too
