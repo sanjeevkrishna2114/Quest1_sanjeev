@@ -46,7 +46,105 @@ flowchart TD
     API --> |"JSON Response"| Client
 ```
 
+## Setup and How to Run
 
+Follow these instructions to clone and run the backend API on your local machine.
+
+### 1. Clone the Repository
+```bash
+git clone https://github.com/yourusername/Quest1_sanjeev.git
+cd Quest1_sanjeev
+```
+
+### 2. System Requirements (FFmpeg)
+This project **requires FFmpeg** to be installed on your system path for audio/video extraction.
+- **Windows:** Download from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) or install via winget: `winget install ffmpeg`
+- **Mac:** `brew install ffmpeg`
+- **Linux:** `sudo apt install ffmpeg`
+
+### 3. Create a Virtual Environment (Recommended)
+It is highly recommended to isolate dependencies using a Python virtual environment:
+```bash
+python -m venv venv
+# On Windows:
+venv\Scripts\activate
+# On Mac/Linux:
+source venv/bin/activate
+```
+
+### 4. Install Dependencies
+Install the required Python packages:
+```bash
+pip install -r requirements.txt
+```
+
+### 5. Start the Backend Server
+Start the backend by running the `uvicorn` ASGI server:
+```bash
+python -m uvicorn app:app --port 8000
+```
+*(The API will be hosted at `http://localhost:8000`)*
+
+---
+
+## FastAPI Backend Integration
+
+We built a **FastAPI** backend to expose this powerful pipeline to frontend applications. 
+
+### Endpoint Usage
+
+**`POST /api/search`**
+
+Send a JSON payload with the phrase you want to find. 
+
+#### Request Body Fields
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| `phrase` | String | **Yes** | The exact dialogue or sentence you want to search for. |
+| `video_url` | String | *Optional* | A YouTube (or supported site) link. If provided, the backend will automatically download the video first. |
+| `video_path` | String | *Optional* | The local filename where the video is saved (or will be saved). Defaults to `"video.mp4"`. |
+| `threshold` | Float | *Optional* | The RapidFuzz match threshold (0-100). Defaults to `80.0`. Lower it for mumbled speech. |
+
+#### Example 1: Full Download & Search
+If you are searching a video for the very first time, provide the `video_url` so the backend downloads it in the background:
+
+*(Note for Windows PowerShell users: Wrap the command in `cmd /c '...'` to prevent PowerShell from stripping quotes!)*
+```bash
+cmd /c 'curl.exe -X POST "http://localhost:8000/api/search" -H "Content-Type: application/json" -d "{\"phrase\": \"hello everybody welcome to thats football\", \"video_url\": \"https://www.youtube.com/watch?v=YVygyRMeATs\", \"video_path\": \"test_video.mp4\"}"'
+```
+
+#### Example 2: Instant Cached Search (No URL)
+If the video is already downloaded on your hard drive (e.g. from a previous search), **omit the `video_url` entirely**. The backend will instantly load the `.transcription.json` cache from disk and return results in ~1.3 seconds:
+
+```bash
+cmd /c 'curl.exe -X POST "http://localhost:8000/api/search" -H "Content-Type: application/json" -d "{\"phrase\": \"they have got two young wingers\", \"video_path\": \"test_video.mp4\"}"'
+```
+
+#### Response Schema:
+The backend returns the exact timing boundaries, the actual spoken text from the video, and static URLs to the extracted `.png` frames:
+```json
+{
+  "success": true,
+  "match_score": 86.86,
+  "spoken_text": "they've got two very young winger in munez and rio.",
+  "start_timestamp": "00:01:43.299",
+  "start_frame": 5165,
+  "end_timestamp": "00:01:46.519",
+  "end_frame": 5326,
+  "fps": 50.0,
+  "images": {
+    "start_frame_url": "http://localhost:8000/static/start_frame.png",
+    "end_frame_url": "http://localhost:8000/static/end_frame.png"
+  },
+  "message": null
+}
+```
+
+> [!TIP]
+> If you query the same `"video_path"` twice, the backend intelligently reads from the `.transcription.json` cache on your hard drive, bypassing the AI model completely and returning results in **~1.3 seconds**.
+
+---
 
 ## Example Output
 
@@ -168,106 +266,6 @@ All test cases were run on the video **Sherlock Holmes - Scandal in Bohemia** (`
 | `"his name is goddfrey norton of the inner temple "` | `"is a mr. godfrey norton of the inner temple."` | `00:25:28.480` | `00:25:30.880` |
 | `"this is not it "` | `"this is not it."` | `00:46:46.000` | `00:46:48.300` |
 | `"i kept it only to safeguard myself and preserve weapon which will secure me from any steps he takes "` | `"kept it only to safeguard myself and to preserve a weapon which will always secure me from any steps"` | `00:49:17.400` | `00:49:24.760` |
-
----
-
-## Setup and How to Run
-
-Follow these instructions to clone and run the backend API on your local machine.
-
-### 1. Clone the Repository
-```bash
-git clone https://github.com/yourusername/Quest1_sanjeev.git
-cd Quest1_sanjeev
-```
-
-### 2. System Requirements (FFmpeg)
-This project **requires FFmpeg** to be installed on your system path for audio/video extraction.
-- **Windows:** Download from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) or install via winget: `winget install ffmpeg`
-- **Mac:** `brew install ffmpeg`
-- **Linux:** `sudo apt install ffmpeg`
-
-### 3. Create a Virtual Environment (Recommended)
-It is highly recommended to isolate dependencies using a Python virtual environment:
-```bash
-python -m venv venv
-# On Windows:
-venv\Scripts\activate
-# On Mac/Linux:
-source venv/bin/activate
-```
-
-### 4. Install Dependencies
-Install the required Python packages:
-```bash
-pip install -r requirements.txt
-```
-
-### 5. Start the Backend Server
-Start the backend by running the `uvicorn` ASGI server:
-```bash
-python -m uvicorn app:app --port 8000
-```
-*(The API will be hosted at `http://localhost:8000`)*
-
----
-
-## FastAPI Backend Integration
-
-We built a **FastAPI** backend to expose this powerful pipeline to frontend applications. 
-
-### Endpoint Usage
-
-**`POST /api/search`**
-
-Send a JSON payload with the phrase you want to find. 
-
-#### Request Body Fields
-
-| Field | Type | Required | Description |
-| :--- | :--- | :--- | :--- |
-| `phrase` | String | **Yes** | The exact dialogue or sentence you want to search for. |
-| `video_url` | String | *Optional* | A YouTube (or supported site) link. If provided, the backend will automatically download the video first. |
-| `video_path` | String | *Optional* | The local filename where the video is saved (or will be saved). Defaults to `"video.mp4"`. |
-| `threshold` | Float | *Optional* | The RapidFuzz match threshold (0-100). Defaults to `80.0`. Lower it for mumbled speech. |
-
-#### Example 1: Full Download & Search
-If you are searching a video for the very first time, provide the `video_url` so the backend downloads it in the background:
-
-*(Note for Windows PowerShell users: Wrap the command in `cmd /c '...'` to prevent PowerShell from stripping quotes!)*
-```bash
-cmd /c 'curl.exe -X POST "http://localhost:8000/api/search" -H "Content-Type: application/json" -d "{\"phrase\": \"hello everybody welcome to thats football\", \"video_url\": \"https://www.youtube.com/watch?v=YVygyRMeATs\", \"video_path\": \"test_video.mp4\"}"'
-```
-
-#### Example 2: Instant Cached Search (No URL)
-If the video is already downloaded on your hard drive (e.g. from a previous search), **omit the `video_url` entirely**. The backend will instantly load the `.transcription.json` cache from disk and return results in ~1.3 seconds:
-
-```bash
-cmd /c 'curl.exe -X POST "http://localhost:8000/api/search" -H "Content-Type: application/json" -d "{\"phrase\": \"they have got two young wingers\", \"video_path\": \"test_video.mp4\"}"'
-```
-
-#### Response Schema:
-The backend returns the exact timing boundaries, the actual spoken text from the video, and static URLs to the extracted `.png` frames:
-```json
-{
-  "success": true,
-  "match_score": 86.86,
-  "spoken_text": "they've got two very young winger in munez and rio.",
-  "start_timestamp": "00:01:43.299",
-  "start_frame": 5165,
-  "end_timestamp": "00:01:46.519",
-  "end_frame": 5326,
-  "fps": 50.0,
-  "images": {
-    "start_frame_url": "http://localhost:8000/static/start_frame.png",
-    "end_frame_url": "http://localhost:8000/static/end_frame.png"
-  },
-  "message": null
-}
-```
-
-> [!TIP]
-> If you query the same `"video_path"` twice, the backend intelligently reads from the `.transcription.json` cache on your hard drive, bypassing the AI model completely and returning results in **~1.3 seconds**.
 
 ---
 
