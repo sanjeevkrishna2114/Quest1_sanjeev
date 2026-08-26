@@ -34,47 +34,35 @@ At the beginning of the project, three main architectural directions were consid
 
 ---
 
-## 3. Challenges Faced
+## 3. Challenges & Technical Solutions
 
 During the implementation and testing of the chosen approach, several fundamental hurdles and architectural flaws emerged:
 
 ### 1. Variable Frame Rate (VFR) Audio Desync
-- **The Issue:** When extracting the audio from web videos using standard tools, the resulting `.wav` timeline got squashed or stretched. The AI found the phrase at `5:15`, but in the actual video, it was spoken at `5:25`.
-- **Impact:** A massive 10-second mismatch between the audio timestamp and the visual video frame, rendering the extraction completely useless.
+- **The Issue:** When downloading "sparse" web video streams, the audio track often drops packets during silence. When extracting the audio from web videos using standard tools, the resulting `.wav` timeline got squashed (e.g. shrinking a 54-min video to a 53-min audio track). The AI found the phrase at `5:15`, but in the actual video, it was spoken at `5:25`.
+- **The Fix:** We forced FFmpeg to pad and strictly synchronize the audio track during extraction using the filter `-af aresample=async=1:first_pts=0`. This forces FFmpeg to respect Presentation Timestamps (PTS) and fill missing gaps with pure silence, guaranteeing the audio timeline perfectly matches the video frame timeline 1:1.
 
 ### 2. OpenCV Seeking Inaccuracy
-- **The Issue:** We initially used Python's `cv2.VideoCapture` to calculate the frame number (`timestamp * fps`) and seek to it.
-- **Impact:** OpenCV is notoriously terrible at seeking to precise frame indexes in highly compressed MP4 files (due to Keyframe/P-frame gaps). It frequently grabbed the wrong frame entirely.
+- **The Issue:** We initially used Python's `cv2.VideoCapture` to calculate the frame number (`timestamp * fps`) and seek to it. However, OpenCV is notoriously terrible at seeking to precise frame indexes in highly compressed MP4 files due to Variable Frame Rate (VFR) keyframe gaps. It frequently grabbed the wrong frame, up to 10 seconds away.
+- **The Fix:** We ripped OpenCV out of the pipeline completely and replaced it with a native FFmpeg subprocess command: `ffmpeg -ss {timestamp} -vframes 1`. FFmpeg natively handles time-based seeking flawlessly, allowing us to seek to the exact millisecond with frame-perfect precision.
 
-### 3. Extremely Slow AI Processing (The 1-Hour Video Problem)
-- **The Issue:** Running the Whisper model locally over a full 1-hour movie took immense processing power and time, mostly wasted on analyzing silent pauses, breathing, or background noise.
+### 3. Extremely Slow AI Processing & OOM Errors
+- **The Issue:** Running the `medium` Whisper model locally over a full 1-hour movie took immense processing power, caused Out of Memory (OOM) errors, and wasted time analyzing silent pauses and breathing.
+- **The Fix:** We switched to the `base` Whisper model with `beam_size=1` for greedy, memory-efficient decoding. To solve the slow processing times, we enabled `faster-whisper`'s built-in Silero VAD filter (`vad_filter=True`). This aggressively scans for and deletes all silence before the Whisper AI even looks at the audio, drastically cutting down compute time.
 
-### 4. Repeated Computations (Wasted Time)
+### 4. Inexact Human Queries & AI Typos
+- **The Issue:** The Whisper model would occasionally misspell a word (e.g., transcribing "rebels" as "rebells its"). If a user searched for *"My mind rebels at stagnation"*, standard exact string matching completely failed.
+- **The Fix:** We abandoned exact text matching and implemented a sliding-window search using the `RapidFuzz` library. This scores phrase similarity based on phonetics/characters. If the transcription is slightly garbled but matches the user's query with an 80%+ confidence score, we register it as a success.
+
+### 5. Repeated Computations (Wasted Time)
 - **The Issue:** If a user searched for three different quotes in the same movie, the backend blindly re-extracted the audio and re-ran the heavy AI transcription three separate times.
-
-### 5. Inexact Human Queries
-- **The Issue:** If a user searched for *"My mind rebels at stagnation"*, but the speaker mumbled and the AI transcribed *"my mind rebells its stagnation"*, standard string matching completely failed.
+- **The Fix:** We built a `.transcription.json` local caching layer. The first time a video is analyzed, its full word-level timestamp array is dumped to a JSON file. If queried again, the script skips video downloading, audio extraction, and AI transcription entirely. It loads the cache and executes the fuzzy search instantly (dropping response times from minutes down to ~1.3 seconds).
 
 ---
 
-### Iteration 1: Audio Sync & The RapidFuzz Upgrade
-- **Fixing the Sync:** We identified the VFR audio drift. We forced FFmpeg to pad and strictly synchronize the audio track during extraction using the flag `-af aresample=async=1:first_pts=0`. This guaranteed the audio timeline perfectly matched the video frame timeline 1:1.
-- **Fixing the Search:** We abandoned exact text matching and implemented `RapidFuzz`. We used a sliding window algorithm that scores phrase similarity. If the transcription is slightly garbled but matches the user's query with an 80%+ confidence score, we register it as a success.
+## 4. Final Architecture Evolution
 
-### Iteration 2: Ditching OpenCV for Native FFmpeg Extraction
-- Because OpenCV failed to grab the correct frame accurately from compressed MP4s, we ripped it out of the pipeline.
-- We replaced it with a native FFmpeg subprocess command: `ffmpeg -ss {timestamp} -vframes 1`. FFmpeg natively handles keyframe decoding, allowing us to seek to the exact millisecond with frame-perfect precision.
-
-### Iteration 3: VAD (Voice Activity Detection) Speed Optimization
-- To solve the slow processing times for long videos, we enabled `faster-whisper`'s built-in Silero VAD filter (`vad_filter=True`).
-- Before the Whisper AI even looks at the audio, the VAD filter aggressively scans for and deletes all silence, breathing, and non-speech background noise. This drastically cuts down the compute time.
-
-### Iteration 4: Local Caching Layer
-- To prevent redundant computations, we built a `.transcription.json` caching mechanism.
-- The first time a video is analyzed, its full word-level timestamp array is dumped to a JSON file. If a user queries that same video again, the script skips video downloading, audio extraction, and AI transcription entirely. It loads the cache and executes the fuzzy search instantly (dropping response times from minutes down to ~1.3 seconds).
-
-### Iteration 5: The FastAPI Backend Evolution
-- We moved away from a simple CLI script and refactored the pipeline into a modern, decoupled backend architecture using **FastAPI**.
+By combining all the technical solutions above, we moved away from a simple CLI script and refactored the pipeline into a modern, decoupled backend architecture using **FastAPI**.
 - The `app.py` server hosts the `POST /api/search` endpoint.
 - It seamlessly manages the `yt-dlp` download, the `find_dialogue_asr.py` AI pipeline, and statically serves the extracted `.png` images back to the client over HTTP.
 

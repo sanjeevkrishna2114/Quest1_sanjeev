@@ -46,29 +46,7 @@ flowchart TD
     API --> |"JSON Response"| Client
 ```
 
-## Problems Faced & Technical Solutions
 
-During development, we encountered several significant technical challenges related to video processing and AI transcription:
-
-### 1. Audio Timescale Drift (The "Squashed Audio" Bug)
-**Problem:** When downloading "sparse" web video streams (e.g., from `ok.ru`), the audio track often drops packets during long periods of silence to save bandwidth. When we initially used `ffmpeg` to extract the audio to a WAV file, it ignored these gaps and squashed all the existing audio packets together. This shrunk a 54-minute video into a 53-minute audio track, completely destroying the timeline synchronization and causing Whisper to output timestamps that were 10 to 30 seconds off from the actual video.
-**Fix:** We updated the `ffmpeg` audio extraction command to include the filter `-af aresample=async=1:first_pts=0`. This forces FFmpeg to respect the Presentation Timestamps (PTS) and fill any missing gaps with pure silence, ensuring the `.wav` file is perfectly 1:1 synchronized with the video timeline.
-
-### 2. OpenCV Frame Extraction Inaccuracy
-**Problem:** We initially used OpenCV (`cv2`) to extract the video frame using the timestamp provided by Whisper. However, OpenCV struggles heavily with Variable Frame Rate (VFR) web videos. It would often "snap" to the nearest keyframe rather than the exact millisecond, resulting in extracted images that were up to 10 seconds away from the actual dialogue scene.
-**Fix:** We completely replaced OpenCV with `ffmpeg -ss` for frame extraction. FFmpeg's time-based seeking is flawlessly accurate down to the millisecond, bypassing all VFR and keyframe bugs.
-
-### 3. Out of Memory (OOM) Errors on Long Videos
-**Problem:** Processing a full 1-hour movie using the `medium` Whisper model caused the system to run out of memory. 
-**Fix:** We switched to the `base` Whisper model and applied `beam_size=1` for greedy decoding. The `base` model is highly memory-efficient while remaining incredibly accurate for English dialogue.
-
-### 4. Minor Transcription Typos Breaking Exact Matches
-**Problem:** The Whisper model would occasionally misspell a word (e.g., transcribing "rebels" as "rebells its") or add unexpected punctuation, causing exact string matching searches to fail.
-**Fix:** We implemented a sliding-window search using the `rapidfuzz` library. This allows the script to find the target phrase by matching the phonetic/character similarity, easily ignoring minor AI typos and punctuation differences.
-
-### 5. Slow Iteration on the Same Video
-**Problem:** If the user wanted to search for a second quote in the same video, the script would waste several minutes re-extracting the audio and re-running the heavy Whisper model.
-**Fix:** We implemented a **Transcription Cache**. The script now saves the word-level timestamps to a `video.mp4.transcription.json` file. Subsequent runs on the same video instantly load this cache, allowing new phrases to be searched in milliseconds.
 
 ## Example Output
 
