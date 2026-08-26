@@ -10,6 +10,42 @@ Given a target phrase and a video (either downloaded via a URL or provided local
 4. Uses fuzzy string matching to find the target phrase in the transcription, even if the AI misspelled a word.
 5. Extracts the exact starting and ending video frames of the dialogue using `ffmpeg`.
 
+## Architecture Diagram
+
+Below is the high-level architecture of the dialogue search pipeline and how the FastAPI backend interacts with the various components:
+
+```mermaid
+flowchart TD
+    Client([Frontend / Client]) --> |"POST /api/search"| API(FastAPI Backend)
+    
+    subgraph Pipeline [Dialogue Search Pipeline]
+        Downloader[yt-dlp] 
+        AudioExt[FFmpeg Audio Extractor]
+        ASR[faster-whisper AI]
+        Search[RapidFuzz Searcher]
+        FrameExt[FFmpeg Frame Extractor]
+    end
+    
+    API -- "Download (if URL given)" --> Downloader
+    Downloader -- "video.mp4" --> API
+    API --> Cache{Cache Exists?}
+    
+    Cache -- "No" --> AudioExt
+    AudioExt -- "temp_audio.wav" --> ASR
+    ASR -- "VAD Filter + Transcription" --> CacheStore[(JSON Cache)]
+    
+    Cache -- "Yes" --> Search
+    CacheStore --> Search
+    
+    Search -- "Match Timestamps" --> FrameExt
+    FrameExt -- "Extract PNGs" --> Static[(Static Files)]
+    
+    Static -. "Images" .-> API
+    Search -. "JSON Text Data" .-> API
+    
+    API --> |"JSON Response"| Client
+```
+
 ## Problems Faced & Technical Solutions
 
 During development, we encountered several significant technical challenges related to video processing and AI transcription:
@@ -157,55 +193,50 @@ All test cases were run on the video **Sherlock Holmes - Scandal in Bohemia** (`
 
 ---
 
-## 🏗️ Architecture Diagram
+## Setup and How to Run
 
-Below is the high-level architecture of the dialogue search pipeline and how the FastAPI backend interacts with the various components:
+Follow these instructions to clone and run the backend API on your local machine.
 
-```mermaid
-flowchart TD
-    Client([Frontend / Client]) --> |"POST /api/search"| API(FastAPI Backend)
-    
-    subgraph Pipeline [Dialogue Search Pipeline]
-        Downloader[yt-dlp] 
-        AudioExt[FFmpeg Audio Extractor]
-        ASR[faster-whisper AI]
-        Search[RapidFuzz Searcher]
-        FrameExt[FFmpeg Frame Extractor]
-    end
-    
-    API -- "Download (if URL given)" --> Downloader
-    Downloader -- "video.mp4" --> API
-    API --> Cache{Cache Exists?}
-    
-    Cache -- "No" --> AudioExt
-    AudioExt -- "temp_audio.wav" --> ASR
-    ASR -- "VAD Filter + Transcription" --> CacheStore[(JSON Cache)]
-    
-    Cache -- "Yes" --> Search
-    CacheStore --> Search
-    
-    Search -- "Match Timestamps" --> FrameExt
-    FrameExt -- "Extract PNGs" --> Static[(Static Files)]
-    
-    Static -. "Images" .-> API
-    Search -. "JSON Text Data" .-> API
-    
-    API --> |"JSON Response"| Client
+### 1. Clone the Repository
+```bash
+git clone https://github.com/yourusername/dialogue-spotter.git
+cd dialogue-spotter
 ```
 
----
+### 2. System Requirements (FFmpeg)
+This project **requires FFmpeg** to be installed on your system path for audio/video extraction.
+- **Windows:** Download from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) or install via winget: `winget install ffmpeg`
+- **Mac:** `brew install ffmpeg`
+- **Linux:** `sudo apt install ffmpeg`
 
-## 🌐 FastAPI Backend Integration
+### 3. Create a Virtual Environment (Recommended)
+It is highly recommended to isolate dependencies using a Python virtual environment:
+```bash
+python -m venv venv
+# On Windows:
+venv\Scripts\activate
+# On Mac/Linux:
+source venv/bin/activate
+```
 
-We built a **FastAPI** backend to expose this powerful pipeline to frontend applications. 
+### 4. Install Dependencies
+Install the required Python packages:
+```bash
+pip install -r requirements.txt
+```
 
-### Running the Server
-
+### 5. Start the Backend Server
 Start the backend by running the `uvicorn` ASGI server:
 ```bash
 python -m uvicorn app:app --port 8000
 ```
 *(The API will be hosted at `http://localhost:8000`)*
+
+---
+
+## FastAPI Backend Integration
+
+We built a **FastAPI** backend to expose this powerful pipeline to frontend applications. 
 
 ### Endpoint Usage
 
@@ -259,3 +290,12 @@ The backend returns the exact timing boundaries, the actual spoken text from the
 
 > [!TIP]
 > If you query the same `"video_path"` twice, the backend intelligently reads from the `.transcription.json` cache on your hard drive, bypassing the AI model completely and returning results in **~1.3 seconds**.
+
+---
+
+## Limitations
+
+- **Blocking API Requests:** The FastAPI endpoint holds the connection open until processing finishes. For extremely long videos, this risks the client connection timing out before a response is sent.
+- **Disk Space Overhead:** Entire video files are downloaded and stored locally. A future implementation could stream the audio directly using `yt-dlp` and extract the frame remotely via the network URL.
+- **Singing & Music Videos:** The integrated Silero VAD (Voice Activity Detection) filter optimizes speed specifically for spoken dialogue. It actively filters out singing and heavy instrumentation, meaning it will likely fail to extract lyrics from music videos.
+- **Semantic Understanding:** The fuzzy matching algorithm (`RapidFuzz`) perfectly handles AI transcription typos or human spelling errors, but it does *not* understand context or synonyms.
