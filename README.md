@@ -211,31 +211,44 @@ python -m uvicorn app:app --port 8000
 
 **`POST /api/search`**
 
-Send a JSON payload with the phrase you want to find. If you provide a `"video_url"`, the backend will automatically download it in the background using `yt-dlp`. If you only provide a `"video_path"`, it will search a local file on your computer.
+Send a JSON payload with the phrase you want to find. 
 
-#### Request Schema:
-```json
-{
-  "phrase": "the exact dialogue you want to find",
-  "video_url": "https://www.youtube.com/watch?v=...", 
-  "video_path": "test_video.mp4",
-  "threshold": 80.0
-}
+#### Request Body Fields
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| `phrase` | String | **Yes** | The exact dialogue or sentence you want to search for. |
+| `video_url` | String | *Optional* | A YouTube (or supported site) link. If provided, the backend will automatically download the video first. |
+| `video_path` | String | *Optional* | The local filename where the video is saved (or will be saved). Defaults to `"video.mp4"`. |
+| `threshold` | Float | *Optional* | The RapidFuzz match threshold (0-100). Defaults to `80.0`. Lower it for mumbled speech. |
+
+#### Example 1: Full Download & Search
+If you are searching a video for the very first time, provide the `video_url` so the backend downloads it in the background:
+
+*(Note for Windows PowerShell users: Wrap the command in `cmd /c '...'` to prevent PowerShell from stripping quotes!)*
+```bash
+cmd /c 'curl.exe -X POST "http://localhost:8000/api/search" -H "Content-Type: application/json" -d "{\"phrase\": \"hello everybody welcome to thats football\", \"video_url\": \"https://www.youtube.com/watch?v=YVygyRMeATs\", \"video_path\": \"test_video.mp4\"}"'
 ```
-*(Only `"phrase"` is strictly required!)*
+
+#### Example 2: Instant Cached Search (No URL)
+If the video is already downloaded on your hard drive (e.g. from a previous search), **omit the `video_url` entirely**. The backend will instantly load the `.transcription.json` cache from disk and return results in ~1.3 seconds:
+
+```bash
+cmd /c 'curl.exe -X POST "http://localhost:8000/api/search" -H "Content-Type: application/json" -d "{\"phrase\": \"they have got two young wingers\", \"video_path\": \"test_video.mp4\"}"'
+```
 
 #### Response Schema:
-The backend returns the exact timing boundaries, the actual spoken text from the video, and static URLs to the extracted frames:
+The backend returns the exact timing boundaries, the actual spoken text from the video, and static URLs to the extracted `.png` frames:
 ```json
 {
   "success": true,
-  "match_score": 93.10,
-  "spoken_text": "my mind rebels its stagnation.",
-  "start_timestamp": "00:05:25.139",
-  "start_frame": 7796,
-  "end_timestamp": "00:05:27.740",
-  "end_frame": 7858,
-  "fps": 23.97,
+  "match_score": 86.86,
+  "spoken_text": "they've got two very young winger in munez and rio.",
+  "start_timestamp": "00:01:43.299",
+  "start_frame": 5165,
+  "end_timestamp": "00:01:46.519",
+  "end_frame": 5326,
+  "fps": 50.0,
   "images": {
     "start_frame_url": "http://localhost:8000/static/start_frame.png",
     "end_frame_url": "http://localhost:8000/static/end_frame.png"
