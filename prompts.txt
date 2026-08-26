@@ -116,3 +116,20 @@ give me a proper curl req not this body shi and all
 Prompt 27:
 ----------
 in the readme add different curl commands like with the video link and with just the file path and explain what are required and what fields are optional and include curl commands too
+
+Prompt 28:
+----------
+the approach.md aint detailed enough can you create the approach.md like this like add the missing things on the things we have implemented 
+
+Prompt 29:
+----------
+few more changes to readme lets change the order of the content in readme 
+overview,architecture,problems faced,example op,then create a new sub heading called setup and how to run the file,then fast api part at the end
+
+Prompt 30:
+----------
+also at the end add a small limitation part and make the setup clean and detailed as a person wiht just this repo will clone it and run it so make the setup steps a bit detailed 
+
+Prompt 31:
+----------
+clean up code , and leave the repo in a state where someone can clone it add these propmts to the promt.txt too

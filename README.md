@@ -199,8 +199,8 @@ Follow these instructions to clone and run the backend API on your local machine
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/yourusername/dialogue-spotter.git
-cd dialogue-spotter
+git clone https://github.com/yourusername/Quest1_sanjeev.git
+cd Quest1_sanjeev
 ```
 
 ### 2. System Requirements (FFmpeg)

@@ -77,16 +77,11 @@ def find_phrase_in_audio(video_path: str, target_phrase: str, threshold: float =
         )
         
         all_words = []
-        full_text_list = []
         for segment in segments:
             for word in segment.words:
                 all_words.append(word)
-                full_text_list.append(word.word.strip())
                 
-        # Save the transcribed text to a file so we can debug it
-        with open("transcription.txt", "w", encoding="utf-8") as f:
-            f.write(" ".join(full_text_list))
-            
+
         # Save cache for future runs
         print(f"Saving transcription cache to {cache_file}...")
         all_words_data = [{"word": w.word, "start": w.start, "end": w.end} for w in all_words]
