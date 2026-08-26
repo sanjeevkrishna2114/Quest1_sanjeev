@@ -154,3 +154,95 @@ All test cases were run on the video **Sherlock Holmes - Scandal in Bohemia** (`
 | `"his name is goddfrey norton of the inner temple "` | `"is a mr. godfrey norton of the inner temple."` | `00:25:28.480` | `00:25:30.880` |
 | `"this is not it "` | `"this is not it."` | `00:46:46.000` | `00:46:48.300` |
 | `"i kept it only to safeguard myself and preserve weapon which will secure me from any steps he takes "` | `"kept it only to safeguard myself and to preserve a weapon which will always secure me from any steps"` | `00:49:17.400` | `00:49:24.760` |
+
+---
+
+## 🏗️ Architecture Diagram
+
+Below is the high-level architecture of the dialogue search pipeline and how the FastAPI backend interacts with the various components:
+
+```mermaid
+flowchart TD
+    Client([Frontend / Client]) --> |"POST /api/search"| API(FastAPI Backend)
+    
+    subgraph Pipeline [Dialogue Search Pipeline]
+        Downloader[yt-dlp] 
+        AudioExt[FFmpeg Audio Extractor]
+        ASR[faster-whisper AI]
+        Search[RapidFuzz Searcher]
+        FrameExt[FFmpeg Frame Extractor]
+    end
+    
+    API -- "Download (if URL given)" --> Downloader
+    Downloader -- "video.mp4" --> API
+    API --> Cache{Cache Exists?}
+    
+    Cache -- "No" --> AudioExt
+    AudioExt -- "temp_audio.wav" --> ASR
+    ASR -- "VAD Filter + Transcription" --> CacheStore[(JSON Cache)]
+    
+    Cache -- "Yes" --> Search
+    CacheStore --> Search
+    
+    Search -- "Match Timestamps" --> FrameExt
+    FrameExt -- "Extract PNGs" --> Static[(Static Files)]
+    
+    Static -. "Images" .-> API
+    Search -. "JSON Text Data" .-> API
+    
+    API --> |"JSON Response"| Client
+```
+
+---
+
+## 🌐 FastAPI Backend Integration
+
+We built a **FastAPI** backend to expose this powerful pipeline to frontend applications. 
+
+### Running the Server
+
+Start the backend by running the `uvicorn` ASGI server:
+```bash
+python -m uvicorn app:app --port 8000
+```
+*(The API will be hosted at `http://localhost:8000`)*
+
+### Endpoint Usage
+
+**`POST /api/search`**
+
+Send a JSON payload with the phrase you want to find. If you provide a `"video_url"`, the backend will automatically download it in the background using `yt-dlp`. If you only provide a `"video_path"`, it will search a local file on your computer.
+
+#### Request Schema:
+```json
+{
+  "phrase": "the exact dialogue you want to find",
+  "video_url": "https://www.youtube.com/watch?v=...", 
+  "video_path": "test_video.mp4",
+  "threshold": 80.0
+}
+```
+*(Only `"phrase"` is strictly required!)*
+
+#### Response Schema:
+The backend returns the exact timing boundaries, the actual spoken text from the video, and static URLs to the extracted frames:
+```json
+{
+  "success": true,
+  "match_score": 93.10,
+  "spoken_text": "my mind rebels its stagnation.",
+  "start_timestamp": "00:05:25.139",
+  "start_frame": 7796,
+  "end_timestamp": "00:05:27.740",
+  "end_frame": 7858,
+  "fps": 23.97,
+  "images": {
+    "start_frame_url": "http://localhost:8000/static/start_frame.png",
+    "end_frame_url": "http://localhost:8000/static/end_frame.png"
+  },
+  "message": null
+}
+```
+
+> [!TIP]
+> If you query the same `"video_path"` twice, the backend intelligently reads from the `.transcription.json` cache on your hard drive, bypassing the AI model completely and returning results in **~1.3 seconds**.

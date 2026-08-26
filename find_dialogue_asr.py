@@ -52,8 +52,8 @@ def find_phrase_in_audio(video_path: str, target_phrase: str, threshold: float =
         all_words = [CachedWord(w["word"], w["start"], w["end"]) for w in all_words_data]
     else:
         print("Loading faster-whisper model (base)...")
-        # Using 'base' model without VAD filter to prevent the 10-second timestamp offset bug and prevent OOM
-        model = WhisperModel("base", device="cpu", compute_type="int8")
+        # Auto-detect GPU for 10x speedup, fallback to CPU. 
+        model = WhisperModel("base", device="auto", compute_type="default")
         
         print("Extracting perfectly synced audio using ffmpeg...")
         audio_path = "temp_audio.wav"
@@ -65,11 +65,15 @@ def find_phrase_in_audio(video_path: str, target_phrase: str, threshold: float =
     
         print("Transcribing audio (this may take a while)...")
         # We strictly use English as requested
+        # Re-enabled VAD filter (now that the ffmpeg timestamp drift bug is fixed)
+        # to skip silent segments and drastically reduce the Whisper processing time.
         segments, info = model.transcribe(
             audio_path, 
             word_timestamps=True, 
             language="en",
-            beam_size=1
+            beam_size=1,
+            vad_filter=True,
+            vad_parameters=dict(min_silence_duration_ms=500)
         )
         
         all_words = []
