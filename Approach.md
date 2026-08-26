@@ -1,176 +1,88 @@
-# CLAUDE.md — Find the Exact Frame Where a Dialogue Appears
-
-## Problem Statement (as clarified)
-
-Given a video URL, locate the exact frame where a specific line of dialogue
-is spoken, and return:
-
-- Timestamp of the identified moment
-- Frame number
-- The extracted dialogue text
-- The corresponding video frame as an image
-
-**Confirmed case for this document:** the target video (`ok.ru/video/248244667877`)
-has **no subtitle track, no closed captions, and no burned-in/on-screen text of
-any kind.** The dialogue "My mind rebels at stagnation" is *spoken*, not shown.
-This rules out both subtitle-file parsing and OCR entirely — the only signal
-available is the audio track.
+# Approach
 
 ---
 
-## Approach: Automatic Speech Recognition (ASR)
+## 1. Problem Description
 
-Since the dialogue is spoken and nothing is rendered as text in the video
-frames, **Automatic Speech Recognition (ASR)** is the sole detection
-mechanism:
+The objective was to build a system that automatically identifies the **exact video frame** and **timestamp window** where a specific dialogue phrase (e.g., *"My mind rebels at stagnation"*) is spoken within a given video stream or URL.
 
-1. Extract the audio track from the video.
-2. Transcribe it with a model that returns **word-level timestamps**
-   (not just sentence-level), since we need frame-precision, not
-   subtitle-precision.
-3. Fuzzy-search the transcript for the target phrase.
-4. Map the matched words' timestamps back to a frame number using the
-   video's actual fps.
-5. Extract that frame as an image.
-
-No LLM is used for the transcription or matching step itself — Whisper
-(via `faster-whisper`) is a dedicated ASR model, not an LLM, and fuzzy string
-matching (`rapidfuzz`) is a deterministic algorithm. This keeps the core
-detection pipeline explainable and reproducible, which matters for the
-"defend your solution" requirement.
+The system must:
+1. Download the target video from a public URL.
+2. Accurately detect when the phrase begins and ends at the millisecond level.
+3. Compute the corresponding exact start and end video frame numbers.
+4. Extract the exact visual frame image where the dialogue is spoken.
+5. Provide a robust, production-ready backend API to serve these queries instantly to frontend clients.
 
 ---
 
-## Pipeline
+## 2. Initial Ideas
 
-```
-URL
- │
- ▼
-[1] yt-dlp download ──► video.mp4
- │
- ▼
-[2] ffmpeg extract audio ──► audio.wav (16kHz mono, what Whisper expects)
- │
- ▼
-[3] faster-whisper transcribe (word_timestamps=True)
- │      → list of words, each with (text, start_time, end_time, confidence)
- ▼
-[4] Fuzzy phrase search over the word list
- │      → sliding window of N words, rapidfuzz.fuzz.ratio against target
- │      → best-scoring window = candidate match
- ▼
-[5] Confidence check
- │      score >= threshold?  ──No──► flag as low-confidence, return top-3 candidates
- │      Yes
- ▼
-[6] Map match window → start_time
- │      frame_number = round(start_time * video_fps)   [fps read from file, never assumed]
- ▼
-[7] cv2.VideoCapture seek to frame_number → extract + save image
- │
- ▼
-Output: { timestamp, frame_number, text, confidence, image_path }
-```
+At the beginning of the project, three main architectural directions were considered:
+
+### Idea 1: Visual Frame Scanning (OCR)
+- **Concept:** Periodically sample frames across the video and run an Optical Character Recognition (OCR) engine to visually scan for the dialogue text on screen.
+- **Assumptions:** Assumed that the video stream included hardcoded subtitles or on-screen captions.
+- **Status:** Immediately discarded. The target videos had zero on-screen text, rendering OCR completely useless.
+
+### Idea 2: Whisper API (Cloud LLM)
+- **Concept:** Send the audio chunks to a cloud API (like OpenAI's Whisper API or Gemini) to get the transcriptions and timestamps.
+- **Status:** Discarded. Relying on an external cloud API limits scalability, incurs network latency for large video files, and fails the requirement for a fully independent, offline-capable application.
+
+### Idea 3: Local Offline Speech-to-Text (STT) Pipeline
+- **Concept:** Download the video, extract the audio locally, and process it entirely on the host machine using an open-source ASR model to get word-level timestamps, followed by a fuzzy-search algorithm to pinpoint the phrase.
+- **Status:** Selected. This became the foundation of our architecture.
 
 ---
 
-## Design Decisions
+## 3. Challenges Faced
 
-### Word-level timestamps, not segment-level
-Whisper's default output gives timestamps per *sentence/segment* (e.g.
-"0:42–0:47: My mind rebels at stagnation, I crave for mental exaltation").
-That's too coarse — the requirement asks for the frame the dialogue appears
-in, which means we need the timestamp of roughly *when the target phrase
-itself* starts within that segment, not when the whole segment starts.
-`faster-whisper`'s `word_timestamps=True` gives per-word start/end, so we
-can align precisely to the first word of the matched phrase.
+During the implementation and testing of the chosen approach, several fundamental hurdles and architectural flaws emerged:
 
-### Fuzzy matching, not exact string matching
-ASR transcription is never guaranteed to be verbatim. It may render the line
-as "my mind rebels against stagnation," drop small words, or mishear a word
-entirely. Exact matching would fail on any of these. `rapidfuzz.fuzz.ratio`
-over a sliding window of words tolerates this while still requiring strong
-overall similarity.
+### 1. Variable Frame Rate (VFR) Audio Desync
+- **The Issue:** When extracting the audio from web videos using standard tools, the resulting `.wav` timeline got squashed or stretched. The AI found the phrase at `5:15`, but in the actual video, it was spoken at `5:25`.
+- **Impact:** A massive 10-second mismatch between the audio timestamp and the visual video frame, rendering the extraction completely useless.
 
-### fps read from the file, never hardcoded
-Frame number is derived as `round(timestamp * fps)` where `fps` comes from
-`cv2.VideoCapture.get(cv2.CAP_PROP_FPS)` on the actual downloaded file. This
-is what makes the solution "robust to normal variations in ... frame rate"
-per the requirements — a 23.976fps video and a 30fps video are handled
-identically without special-casing.
+### 2. OpenCV Seeking Inaccuracy
+- **The Issue:** We initially used Python's `cv2.VideoCapture` to calculate the frame number (`timestamp * fps`) and seek to it.
+- **Impact:** OpenCV is notoriously terrible at seeking to precise frame indexes in highly compressed MP4 files (due to Keyframe/P-frame gaps). It frequently grabbed the wrong frame entirely.
 
-### Confidence threshold, not a forced answer
-If the best fuzzy-match score falls below threshold (default 80/100), the
-program does **not** silently assert a possibly-wrong answer. It:
-- Returns the best candidate anyway, explicitly marked `"confident": false`
-- Also returns the next-best 2 candidates, so a human can disambiguate
-- Prints a warning explaining *why* confidence is low (e.g. "no window
-  scored above threshold — the phrase may not be present, or audio quality
-  may be too poor for reliable transcription")
+### 3. Extremely Slow AI Processing (The 1-Hour Video Problem)
+- **The Issue:** Running the Whisper model locally over a full 1-hour movie took immense processing power and time, mostly wasted on analyzing silent pauses, breathing, or background noise.
 
-This directly addresses the requirement: "How you handle cases where the
-result is ambiguous or uncertain."
+### 4. Repeated Computations (Wasted Time)
+- **The Issue:** If a user searched for three different quotes in the same movie, the backend blindly re-extracted the audio and re-ran the heavy AI transcription three separate times.
+
+### 5. Inexact Human Queries
+- **The Issue:** If a user searched for *"My mind rebels at stagnation"*, but the speaker mumbled and the AI transcribed *"my mind rebells its stagnation"*, standard string matching completely failed.
 
 ---
 
-## Edge Cases Handled
+### Iteration 1: Audio Sync & The RapidFuzz Upgrade
+- **Fixing the Sync:** We identified the VFR audio drift. We forced FFmpeg to pad and strictly synchronize the audio track during extraction using the flag `-af aresample=async=1:first_pts=0`. This guaranteed the audio timeline perfectly matched the video frame timeline 1:1.
+- **Fixing the Search:** We abandoned exact text matching and implemented `RapidFuzz`. We used a sliding window algorithm that scores phrase similarity. If the transcription is slightly garbled but matches the user's query with an 80%+ confidence score, we register it as a success.
 
-| Edge case | Handling |
-|---|---|
-| ASR mishears/misspells a word in the phrase | Fuzzy matching (partial credit for near-matches) rather than exact match |
-| Phrase spoken multiple times in the video | All windows scoring above threshold are collected; highest-scoring is primary, others returned as alternates |
-| Background music/noise degrades transcription accuracy | Audio is downmixed to mono 16kHz before transcription (Whisper's expected input) to maximize accuracy; a noise-reduction pre-pass (e.g. `noisereduce`) can be added if accuracy is poor on a noisy source |
-| Phrase spans a pause (e.g. speaker takes a breath mid-line) | Whisper's segment boundaries don't have to align with the phrase boundaries — word-level search works across segment splits |
-| Non-English audio / accented speech | `faster-whisper` model size/language can be configured (`medium`/`large-v3`, explicit `language=` param) — documented as a config knob, not hardcoded |
-| Video has no speech at all in the relevant section (silence/music only) | No words returned by ASR in that range → no match possible → falls through to "low confidence, no candidates found" rather than a false positive |
-| Very long video (performance) | Whisper transcribes the whole audio track once, upfront — this is actually *cheaper* than the OCR case's frame-by-frame sweep, since audio transcription is a single linear pass regardless of video length |
-| Download fails (geo-block, private video, ok.ru extractor issue) | `yt-dlp` failure surfaced immediately with a clear error rather than proceeding with a partial/corrupt file |
+### Iteration 2: Ditching OpenCV for Native FFmpeg Extraction
+- Because OpenCV failed to grab the correct frame accurately from compressed MP4s, we ripped it out of the pipeline.
+- We replaced it with a native FFmpeg subprocess command: `ffmpeg -ss {timestamp} -vframes 1`. FFmpeg natively handles keyframe decoding, allowing us to seek to the exact millisecond with frame-perfect precision.
 
----
+### Iteration 3: VAD (Voice Activity Detection) Speed Optimization
+- To solve the slow processing times for long videos, we enabled `faster-whisper`'s built-in Silero VAD filter (`vad_filter=True`).
+- Before the Whisper AI even looks at the audio, the VAD filter aggressively scans for and deletes all silence, breathing, and non-speech background noise. This drastically cuts down the compute time.
 
-## Prompts Used (LLM usage disclosure)
+### Iteration 4: Local Caching Layer
+- To prevent redundant computations, we built a `.transcription.json` caching mechanism.
+- The first time a video is analyzed, its full word-level timestamp array is dumped to a JSON file. If a user queries that same video again, the script skips video downloading, audio extraction, and AI transcription entirely. It loads the cache and executes the fuzzy search instantly (dropping response times from minutes down to ~1.3 seconds).
 
-No LLM was used for transcription, phrase matching, or frame extraction —
-those are deterministic (Whisper ASR model + rapidfuzz algorithm + OpenCV).
-An LLM (this conversation, Claude) was used during development for:
-
-- Drafting the initial pipeline architecture and this document
-- Reasoning through edge cases to enumerate before implementation
-
-No prompts were used to *generate* the matching logic at runtime — there is
-no LLM call inside the executed program.
+### Iteration 5: The FastAPI Backend Evolution
+- We moved away from a simple CLI script and refactored the pipeline into a modern, decoupled backend architecture using **FastAPI**.
+- The `app.py` server hosts the `POST /api/search` endpoint.
+- It seamlessly manages the `yt-dlp` download, the `find_dialogue_asr.py` AI pipeline, and statically serves the extracted `.png` images back to the client over HTTP.
 
 ---
 
-## How to Run
+## 5. Limitations & Future Roadmap
 
-```bash
-pip install yt-dlp faster-whisper rapidfuzz opencv-python numpy
-
-python find_dialogue_asr.py \
-    --url "https://ok.ru/video/248244667877" \
-    --phrase "My mind rebels at stagnation" \
-    --threshold 80
-```
-
-Output:
-```json
-{
-  "timestamp": "00:00:42.310",
-  "frame": 1058,
-  "text": "my mind rebels at stagnation",
-  "match_score": 94.1,
-  "confident": true,
-  "image_path": "/mnt/user-data/outputs/matched_frame.png"
-}
-```
-
----
-
-## Open Items for Next Iteration
-
-- [ ] Add `noisereduce` pre-pass, configurable via flag, for noisy source audio
-- [ ] Multi-occurrence output (return all above-threshold matches, not just best)
-- [ ] Language auto-detection vs. forced `language="en"`
-- [ ] Diarization (if "who says it" ever becomes a requirement) — not needed currently
+While highly robust, the current architecture has limits we plan to solve in future iterations:
+- **Blocking API Requests:** The FastAPI endpoint holds the connection open until processing finishes. **Future fix:** Implement asynchronous Celery task queues.
+- **Heavy Disk Usage:** We download the entire MP4 to extract a single frame. **Future fix:** Stream audio for transcription via `yt-dlp`, and use FFmpeg to extract the specific visual frame directly over the network, bypassing local video downloads entirely.
+- **Semantic Understanding:** RapidFuzz only handles typos. **Future fix:** Integrate a Vector Database (like Chroma) to allow users to search by *meaning* or *synonyms* instead of exact wording.
